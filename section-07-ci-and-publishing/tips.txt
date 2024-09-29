@@ -1,0 +1,485 @@
+This is section 7 which explains how to set ur GIT repositoiry under CI\CD
+There are many CI/CD platforms like TeamCity/GitLab CI/ Jenkins/Bamboo etc
+We chose Circle CI
+
+-U need to sign in to Circle CI
+-Create a project in Circle CI
+    while creating a project set a GitHub repo url to the corresponding field in setting of project
+-In project itself there should be config.yml file with all information for CI/CD
+    in our case the project is:
+        deploying-machine-learning-models
+    and config is under:
+        deploying-machine-learning-models/.circleci/config.yml
+    This .circleci/config.yml is located not in section 7 because Circle CI requires ur config to be under root of ur repo
+- We need to configure some Cricle CI environment variables in Circle CI UI:
+    PIP_EXTRA_INDEX_URL - (mainly for section 8)
+    RAILWAY_TOKEN
+    GEMFURY_URL
+    GEMFURY_PUSH_URL
+    KAGGLE_USERNAME
+	KAGGLE_KEY
+	HEROKU_API_KEY - for section 11
+
+
+- We also will need a package index platform in order to deploy and load ur custom packages like out tid-regrssion-model
+    in order to load and store it in secure manner (WE ALSO CAN USE ANY S3 Service like Minio, Amazon AWS etc)
+- Sign up in Gemfury
+- Get full access token for Gemfury
+
+
+
+- config.yml explanation:
+Reusable Anchors and Aliases:
+########################################################################################################################
+########################################################################################################################
+version: '2.1'
+orbs:
+  node: circleci/node@5.1.0
+Overview
+>>>
+Version: Uses CircleCI configuration version 2.1.
+Orbs: Utilizes the node orb (circleci/node@5.1.0) for Node.js-related tasks.
+Anchors: Defines reusable configuration snippets using YAML anchors to avoid repetition.
+########################################################################################################################
+defaults: &defaults
+  docker:
+    - image: cimg/python:3.11.1
+  working_directory: ~/project
+>>>
+Defaults (&defaults)
+Purpose: Sets default configurations for jobs.
+Explanation:
+Uses the Docker executor with a Python 3.11.1 image.
+Sets the working directory to ~/project.
+########################################################################################################################
+prepare_venv: &prepare_venv
+  run:
+    name: Create venv
+    command: |
+      python -m venv venv
+      source venv/bin/activate
+      pip install --upgrade pip
+>>>
+Prepare Virtual Environment (&prepare_venv)
+Purpose: Sets up a Python virtual environment.
+Explanation:
+Creates a virtual environment named venv.
+Activates the virtual environment.
+Upgrades pip to the latest version.
+########################################################################################################################
+prepare_tox: &prepare_tox
+  run:
+    name: Install tox
+    command: |
+      pip install --user tox
+>>>
+Prepare Tox (&prepare_tox)
+Purpose: Installs tox, a testing tool.
+########################################################################################################################
+fetch_data: &fetch_data
+  run:
+    name: Set script permissions and fetch data
+    command: |
+      source venv/bin/activate
+      chmod +x ./scripts/fetch_kaggle_dataset.sh
+      ./scripts/fetch_kaggle_dataset.sh
+>>>
+Purpose: Fetches necessary datasets from Kaggle.
+Explanation:
+Activates the virtual environment.
+Changes permissions to make the script executable.
+Runs the script to download the dataset.
+
+
+
+Jobs: The jobs section defines individual tasks that CircleCI will execute.
+########################################################################################################################
+########################################################################################################################
+jobs:
+  section_07_test_app:
+    <<: *defaults
+    working_directory: ~/project/section-07-ci-and-publishing/house-prices-api
+    steps:
+      - checkout:
+          path: ~/project
+      - *prepare_tox
+      - run:
+          name: Runnning app tests
+          command: |
+            tox
+>>>
+section_07_test_app
+Purpose: Tests the house prices API application.
+Explanation:
+Inherits defaults (Python Docker image and working directory).
+Checks out code to ~/project.
+Installs tox.
+Runs tests using tox.
+########################################################################################################################
+    section_07_deploy_app_to_railway:
+        <<: *defaults
+        steps:
+          - checkout:
+              path: ~/project/
+          - node/install:
+              node-version: '16.13'
+          - run: node --version
+          - run: npm i -g @railway/cli
+          - run:
+              name: Deploy to Railway App (You must set RAILWAY_TOKEN env var)
+              command: |
+                cd section-07-ci-and-publishing/house-prices-api && railway up --detach
+>>>
+Purpose: Deploys the application to Railway (a deployment platform).
+Explanation:
+Installs Node.js version 16.13.
+Installs the Railway CLI globally.
+Deploys the application using railway up --detach.
+Note: Requires the RAILWAY_TOKEN environment variable to be set for authentication.
+NOTE!!! If u have lots of project and services in those projects in railway use following command:
+    ... railway up --detach --project $RAILWAY_PROJECT_ID --service refreshing-healing
+    with predeclared env variable like '$RAILWAY_PROJECT_ID' or exact name like 'refreshing-healing'
+########################################################################################################################
+  section_07_test_and_upload_regression_model:
+    <<: *defaults
+    working_directory: ~/project/section-07-ci-and-publishing/model-package
+    steps:
+      - checkout:
+          path: ~/project
+      - *prepare_tox
+      - run:
+          name: Fetch the data
+          command: |
+            tox -e fetch_data
+      - run:
+          name: Test the model
+          command: |
+            tox
+      - run:
+          name: Publish model to Gemfury
+          command: |
+            tox -e publish_model
+>>>
+Purpose: Tests and uploads the regression model package.
+Explanation:
+Fetches data using a tox environment.
+Runs tests on the model.
+Publishes the model to Gemfury, a private package repository.
+########################################################################################################################
+  section_08_deploy_app_container_via_railway:
+    <<: *defaults
+    steps:
+      - setup_remote_docker:
+          # Supported versions: https://circleci.com/docs/2.0/building-docker-images/#docker-version
+          version: 20.10.18
+      - checkout:
+          path: ~/project/
+      - node/install:
+          node-version: '16.13'
+      - run: node --version
+      - run: npm i -g @railway/cli
+      - run:
+          name: Build and run Dockerfile (see https://docs.railway.app/deploy/dockerfiles)
+          command: |
+            cd section-08-deploying-with-containers && railway up --detach
+>>>
+Purpose: Deploys a Dockerized application to Railway.
+Explanation:
+Sets up a remote Docker environment.
+Deploys the Docker container to Railway.
+References Railway's documentation for deploying Dockerfiles.
+########################################################################################################################
+  test_regression_model_py37:
+    docker:
+      - image: circleci/python:3.7.6
+    working_directory: ~/project/packages/regression_model
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Run tests with Python 3.7
+          command: |
+            sudo pip install --upgrade pip
+            pip install --user tox
+            tox -e py37
+
+  test_regression_model_py38:
+    docker:
+      - image: circleci/python:3.8.0
+    working_directory: ~/project/packages/regression_model
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Run tests with Python 3.8
+          command: |
+            sudo pip install --upgrade pip
+            pip install --user tox
+            tox -e py38
+>>>
+Purpose: Tests the regression model with Python 3.7 and 3.8.
+Explanation:
+Uses specific Python versions in Docker images.
+Runs tests in different Python environments to ensure compatibility.
+########################################################################################################################
+  test_ml_api_py37:
+    docker:
+      - image: circleci/python:3.7.6
+    working_directory: ~/project/packages/ml_api
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Run API tests with Python 3.7
+          command: |
+            sudo pip install --upgrade pip
+            pip install --user tox
+            tox -e py37
+
+  test_ml_api_py38:
+    docker:
+      - image: circleci/python:3.8.1
+    working_directory: ~/project/packages/ml_api
+    steps:
+      - checkout:
+          path: ~/project
+      - run:
+          name: Run API tests with Python 3.8
+          command: |
+            sudo pip install --upgrade pip
+            pip install --user tox
+            tox -e py38
+>>>
+Purpose: Tests the ML API with Python 3.7 and 3.8.
+Configuration: Similar to the regression model tests but for the ML API package.
+########################################################################################################################
+  train_and_upload_regression_model:
+    <<: *defaults
+    steps:
+      - checkout
+      - *prepare_venv
+      - run:
+          name: Install requirements
+          command: |
+            . venv/bin/activate
+            pip install -r packages/regression_model/requirements.txt
+      - *fetch_data
+      - run:
+          name: Train model
+          command: |
+            . venv/bin/activate
+            PYTHONPATH=./packages/regression_model python3 packages/regression_model/regression_model/train_pipeline.py
+      - run:
+          name: Publish model to Gemfury
+          command: |
+            . venv/bin/activate
+            chmod +x ./scripts/publish_model.sh
+            ./scripts/publish_model.sh ./packages/regression_model/
+>>>
+Purpose: Trains the regression model and uploads it.
+Explanation:
+Installs required Python packages.
+Fetches data and trains the model.
+Publishes the trained model to Gemfury.
+########################################################################################################################
+  section_9_differential_tests:
+    <<: *defaults
+    steps:
+      - checkout
+      - *prepare_venv
+      - run:
+          name: Capturing previous model predictions
+          command: |
+            . venv/bin/activate
+            pip install -r packages/ml_api/diff_test_requirements.txt
+            PYTHONPATH=./packages/ml_api python3 packages/ml_api/tests/capture_model_predictions.py
+      - run:
+          name: Runnning differential tests
+          command: |
+            . venv/bin/activate
+            pip install -r packages/ml_api/requirements.txt
+            py.test -vv packages/ml_api/tests -m differential
+>>>
+Purpose: Performs differential testing to compare model versions.
+Explanation:
+Captures predictions from the previous model version.
+Runs tests to ensure the new model's predictions are within acceptable bounds compared to the old model.
+########################################################################################################################
+  section_11_build_and_push_to_heroku_docker:
+    <<: *defaults
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run: docker login --username=$HEROKU_EMAIL --password=$HEROKU_API_KEY registry.heroku.com
+      - run:
+          name: Setup Heroku CLI
+          command: |
+            wget -qO- https://cli-assets.heroku.com/install-ubuntu.sh | sh
+      - run:
+          name: Build and Push Image
+          command: |
+            make build-ml-api-heroku push-ml-api-heroku
+      - run:
+          name: Release to Heroku
+          command: |
+            heroku container:release web --app $HEROKU_APP_NAME
+>>>
+Purpose: Builds and deploys a Docker image to Heroku.
+Explanation:
+Logs into Heroku's container registry using provided credentials.
+Installs the Heroku CLI.
+Builds and pushes the Docker image.
+Releases the application on Heroku.
+########################################################################################################################
+  section_12_publish_docker_image_to_aws:
+    <<: *defaults
+    working_directory: ~/project/packages/ml_models
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Publishing docker image to aws ECR
+          command: |
+            sudo pip install awscli
+            eval $(aws ecr get-login --no-include-email --region us-east-1)
+            make build-ml-api-aws tag-ml-api push-ml-api-aws
+            aws ecs update-service --cluster ml-api-cluster --service custom-service --task-definition  first-run-task-definition --force-new-deployment
+>>>
+Purpose: Publishes a Docker image to AWS ECR and updates an ECS service.
+Explanation:
+Installs AWS CLI.
+Logs into AWS ECR.
+Builds, tags, and pushes the Docker image to AWS.
+Updates the ECS service to deploy the new image.
+########################################################################################################################
+  section_13_train_and_upload_neural_network_model:
+    docker:
+      - image: circleci/python:3.6.4-stretch
+    working_directory: ~/project
+    steps:
+      - checkout
+      - *prepare_venv
+      - run:
+          name: Install requirements
+          command: |
+            . venv/bin/activate
+            pip install -r packages/neural_network_model/requirements.txt
+      - run:
+          name: Fetch Training data - 2GB
+          command: |
+            . venv/bin/activate
+            chmod +x ./scripts/fetch_kaggle_large_dataset.sh
+            ./scripts/fetch_kaggle_large_dataset.sh
+      - run:
+          name: Train model
+          command: |
+            . venv/bin/activate
+            PYTHONPATH=./packages/neural_network_model python3 packages/neural_network_model/neural_network_model/train_pipeline.py
+      - run:
+          name: Publish model to Gemfury
+          command: |
+            . venv/bin/activate
+            chmod +x ./scripts/publish_model.sh
+            ./scripts/publish_model.sh ./packages/neural_network_model/
+>>>
+Purpose: Trains a neural network model and uploads it.
+Explanation:
+Uses an older Python version (3.6.4) to ensure compatibility.
+Downloads a large dataset (~2GB) needed for training.
+Trains the neural network model.
+Publishes the model to Gemfury.
+########################################################################################################################
+
+
+
+Filters and Workflows
+########################################################################################################################
+########################################################################################################################
+tags_only: &tags_only
+  filters:
+    branches:
+      ignore: /.*/
+    tags:
+      only: /^.*/
+>>>
+Tag-Only Filter (&tags_only)
+Purpose: Ensures that certain jobs only run when a git tag is pushed.
+########################################################################################################################
+workflows:
+  version: 2
+  deploy_pipeline:
+    jobs:
+      - section_07_test_app
+      - section_07_deploy_app_to_railway:
+          requires:
+            - section_07_test_app
+          filters:
+            branches:
+              only:
+                - master
+                - demo
+      # upload after git tags are created
+      - section_07_test_and_upload_regression_model:
+          <<: *tags_only
+
+      - section_08_deploy_app_container_via_railway:
+         filters:
+           branches:
+             only:
+               - master
+               - demo
+>>>
+Workflows
+Purpose: Defines the order and conditions under which jobs run.
+Explanation:
+Order of Execution:
+section_07_test_app runs first.
+section_07_deploy_app_to_railway runs next but only if section_07_test_app succeeds and if the branch is master or demo.
+section_07_test_and_upload_regression_model runs only when a git tag is pushed.
+section_08_deploy_app_container_via_railway runs on master or demo branches.
+Dependencies:
+The requires keyword ensures that a job waits for its dependencies to succeed before running.
+########################################################################################################################
+
+
+
+
+
+
+
+
+Why do we need CI/CD?
+Lastly our production pipeline looked like following:
+1. We get Data and run ML algorithm (we tested it via tox -e run train)
+2. We generate artifact in a form uf wheel package: indifference model
+3. We released our model embedded in a fastapi app on a PaaS service (Railway)
+
+All this 3 steps can be encapsulated inside 1 approach CI/CD
+Meaning that we first run test regarding training the model,
+then we get artifact via building a package
+then  deploy it on PaaS
+This ensures that we run all necessary tests before deployment of our pipeline
+And all these steps are done automatically with no manual codding like:
+    running tox tests in CMD
+    building package in CMD
+    uploading project updates into railway with 'railway detach' command in CMD
+
+
+In course there was such scenario:
+1. If we want make changes in house-price-api we do it in demo
+2. When demo branch is pushed to origin, specific job in CI/CD is invoked ragarding api tests and pushing to railway
+    if all is ok then commit in CI/CD marked as succeed
+    Tests are run via tox commands in tox.ini, they are executed because we declared it in config.yml workflow
+    if everything is ok our house-price-api is deployed on railway
+    then we can merge with master
+    after merging with master all steps regarding test in CI/CD will rerun with the same result
+3. Then if we want to make change in model_package we do it in demo as well
+4. When demo branch is pushed to origin, specific job in CI/CD is invoked ragarding api tests and repush house-price-api
+    to railway even if no changes were made to it
+    if all is ok then commit in CI/CD marked as succeed
+    The same test are run via tox commands as in previous steps
+    then we can merge with master if they are successful
+    after that we do a release marked with some tag
+    This tag will invoke new job in CI/CD regarding pushing to Gemfury, after passing some ml specific tests
+    if everything is ok our model_package is deployed to Gemfury

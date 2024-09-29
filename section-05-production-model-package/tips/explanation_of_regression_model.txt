@@ -1,0 +1,107 @@
+1. We decompose our ML model pipeline into few folders:
+
+########################################################################################################################
+NOTE! - we will run this script via tox, and we will be on a higher level then regression_model folder
+so in code we will need to specify 'regression_model' while import i.e.
+from regression_model.config.core import PACKAGE_ROOT, config
+########################################################################################################################
+
+-regression_model -> root folder for package
+########################################################################################################################
+---config
+-----__init__.py -> empty
+-----core.py -> imports root regression_model folder as package,
+                def classes AppConfig and ModelConfig with pydantic BaseModel,
+                def class Config which unites AppConfig and ModelConfig,
+                def func to find config.yml PATH,
+                def func to fetch info from it,
+                def func that returns Config class based on config.yml,
+                finally runs last func and assign output to 'config' var
+---datasets
+-----__init__.py -> empty
+---processing
+-----__init__.py -> empty
+-----data_manager.py -> def func to save pipeline based on path, def func to load saved pipeline,
+                        def func to remove stored pipeline
+-----features.py -> def class to transform time features, def class to map categorical features
+                    all based on scikit-learn base classes
+-----validation.py -> from  regression_model.config.core import 'config' var
+                      def func to process na value based on feature type (feature types are taken from 'config'
+                      def func to validate if input feature are ok in terms of values and data Schema (data types)
+                      Schema is declared as class HouseDataInputSchema in this module and MultipleHouseDataInputs
+---trained_model -> (store pipelines)
+-----__init__.py -> empty
+########################################################################################################################
+
+---__init__.py -> from regression_model.config.core import PACKAGE_ROOT, config
+                  logging.getLogger(config.app_config.package_name).addHandler(logging.NullHandler())
+                  read version numer brom PACKAGE_ROOT/VERSION file
+---config.yml -> target feature name
+                 pipeline name
+                 pipeline save file
+                 variables to rename
+                 features
+                 test size
+                 random state
+                 alpha
+                 categorical with na frequent
+                 categorical with na missing
+                 numerical vars with na
+                 time vars
+                 ref vars
+                 vars to log transform
+                 binirize vars
+                 variables to map
+                   null vars
+                   exposure vars
+                   finish vars
+                   garage vars
+                 categorical vars
+                 qual_mappings
+                 exposure_mappings
+                 finish_mappings
+                 garage_mappings
+---pipeline.py -> from regression_model.config.core import config
+                  from regression_model.processing import features as pp
+                  creates scikit-learn pipeline class with steps
+                      missing imputation - CategoricalImputer(variables=config.model_config.categorical_vars_with_na_missing, imputation_method="missing")
+                      frequent imputation - CategoricalImputer(variables=config.model_config.categorical_vars_with_na_frequent,imputation_method="frequent")
+                      missing indicator - AddMissingIndicator(variables=config.model_config.numerical_vars_with_na)
+                      mean_imputation - MeanMedianImputer(variables=config.model_config.numerical_vars_with_na)
+                      elapsed_time - pp.TemporalVariableTransformer(variables=config.model_config.temporal_vars, reference_variable=config.model_config.ref_var)
+                      drop_features - DropFeatures(features_to_drop=[config.model_config.ref_var])
+                      log - LogTransformer(variables=config.model_config.numericals_log_vars)
+                      binarizer - SklearnTransformerWrapper(variables=config.model_config.binarize_vars)
+                      mapper_qual - pp.Mapper(variables=config.model_config.qual_vars, mappings=config.model_config.qual_mappings)
+                      mapper_exposure - pp.Mapper(variables=config.model_config.finish_vars, mappings=config.model_config.finish_mappings)
+                      mapper_garage - pp.Mapper(variables=config.model_config.garage_vars, mappings=config.model_config.garage_mappings)
+                      rare_label_encoder - RareLabelEncoder(tol=0.01, n_categories=1, variables=config.model_config.categorical_vars)
+                      categorical_encoder -OrdinalEncoder(variables=config.model_config.categorical_vars)
+                      scaler - MinMaxScaler()
+                      Lasso - Lasso(alpha=config.model_config.alpha, random_state=config.model_config.random_state)
+---predict.py ->from regression_model import __version__ as _version
+                from regression_model.config.core import config
+                from regression_model.processing.data_manager import load_pipeline
+                from regression_model.processing.validation import validate_inputs
+                finds name of trained pipeline and its PATH
+                loads pipeline
+                def func to make predictions
+--- train_pipeline.py -> STARTING POINT FOR PIPELINE CREATION
+                         from config.core import config
+                         from pipeline import price_pipe
+                         from processing.data_manager import load_dataset, save_pipeline
+                         def func run_training()
+                           in this function load dataset load_dataset(file_name=config.app_config.training_data_file)
+                           train\test split using config.model_config.features
+                                                  & config.model_config.target
+                                                  & config.model_config.test_size
+                                                  & config.model_config.random_state
+                           transofrm Y with y_train = np.log(y_train)
+                           fit model with price_pipe.fit(X_train, y_train)
+                           save pipeline save_pipeline(pipeline_to_persist=price_pipe)
+                         and finally if __name__ == "__main__": run_training()
+---VERSION -> 0.0.1
+
+
+
+

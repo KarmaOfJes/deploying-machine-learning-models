@@ -1,0 +1,248 @@
+- app -> root folder for our app
+--- -schemas
+    ----__init.py__ -> import health & predict routine
+    from .health import Health
+    from .predict import MultipleHouseDataInputs, PredictionResults
+    ----health.py -> checks for health attributes data type
+        from pydantic import BaseModel
+        class Health(BaseModel):
+            name: str
+            api_version: str
+            model_version: str
+    ----predict.py -> checks for predict attributes data type
+        from pydantic import BaseModel
+        from regression_model.processing.validation import HouseDataInputSchema
+        class PredictionResults(BaseModel): Defines the structure of the prediction results
+            errors: Optional[Any]
+            version: str
+            predictions: Optional[List[float]]
+        class MultipleHouseDataInputs(BaseModel): Defines the structure of multiple house data inputs
+            inputs: List[HouseDataInputSchema]: List of HouseDataInputSchema objects, each representing
+             a single house's data.
+            class Config: Pydantic configuration
+                schema_extra: Provides an example of valid input data,
+                making it easier for users to understand the expected format.
+--- -tests
+    ----__init.py__ -> empty
+    ----conftest.py -> test for config
+    Import TestClient from fastapi.testclient for making HTTP requests.
+    Import pytest for testing.
+    Import config from regression_model.config.core for configuration.
+    Import load_dataset from regression_model.processing.data_manager for loading datasets.
+    Import the main application from app.main.
+    @pytest.fixture(scope="module")
+    def test_data() -> pd.DataFrame:
+        This fixture loads the test dataset using load_dataset and returns it as a Pandas DataFrame.
+        It is scoped to the module level, meaning it is loaded once per test module.
+    @pytest.fixture()
+    def client() -> Generator:
+        This fixture creates a TestClient instance for making HTTP requests to the application.
+         It is scoped to the function level, meaning a new client is created for each test function.
+        The yield statement in the context manager ensures that the client is available for use within the test
+         function, and then it is closed after the test is finished.
+        The app.dependency_overrides = {} line is used to reset the dependency overrides to their default values
+         after each test, ensuring that the tests are isolated from each other.
+    ----test_api.py -> verifies predict endpoint of the API can successfully process the test data
+    Imports TestClient: Used from fastapi.testclient to make HTTP requests to the application.
+    define fnc test_make_prediction
+        This function tests the /api/v1/predict endpoint of the FastAPI application.
+        It takes two arguments:
+            client: A TestClient instance provided by the client fixture.
+            test_data: A Pandas DataFrame containing test data provided by the test_data fixture.
+        Given: It prepares the request payload:
+            It replaces np.nan values in the test data with None to ensure compatibility with Pydantic.
+            It converts the DataFrame to a list of dictionaries using to_dict(orient="records").
+            The resulting dictionary is stored in payload.
+            When: It sends a POST request to the /api/v1/predict endpoint with the prepared payload as JSON data.
+            Then: It performs assertions on the response:
+            It checks if the status code is 200 (successful).
+            It retrieves the JSON response data using response.json().
+            It asserts that the predictions key exists in the response.
+            It asserts that the errors key is either absent or None.
+            It uses math.isclose to check if the first prediction in the predictions list is approximately equal to 113422 with a relative tolerance of 100%. This allows for slight variations due to potential randomness or floating-point precision issues.
+----__init.py__ -> defines a version
+    __version__ = "0.0.2"
+----api.py -> Overall, this code snippet defines a FastAPI API router with endpoints for a health check and making house price predictions based on input data.
+    import fastapi functionalities like APIRouter, HTTPException, jsonable_encoder
+    import loguru logging funtionalities
+    from regression_model import __version__ and make_prediction function
+    from app import __version__, schemas (which is package inside prime app folder)
+    from app.config import settings (which is instance of class Settings())
+    Define The FastAPI api_router = APIRouter() is used to register routes (/health and /predict).
+
+    Define /health Endpoint:
+    @api_router.get("/health", response_model=schemas.Health, status_code=200):
+        This defines a GET endpoint at /health.
+        response_model: Specifies the expected response schema (schemas.Health).
+        status_code: Sets the expected status code (200 for success).
+    health() -> dict:
+        This function defines the logic for the health check endpoint.
+        It creates a schemas.Health object with project name, API version, and model version.
+        It returns the object as a dictionary using health.dict().
+
+    Define /predict Endpoint:
+    @api_router.post("/predict", response_model=schemas.PredictionResults, status_code=200)
+        This defines a POST endpoint at /predict.
+        response_model: Specifies the expected response schema (schemas.PredictionResults).
+        status_code: Sets the expected status code (200 for success).
+    async def predict(input_data: schemas.MultipleHouseDataInputs) -> Any:
+        This function defines the logic for prediction.
+        It takes an input object of type schemas.MultipleHouseDataInputs containing house data for multiple predictions.
+        It converts the input data to a Pandas DataFrame using jsonable_encoder and pd.DataFrame.
+        A comment suggests optimizing the prediction function by making it asynchronous for improved performance
+        (not implemented here).
+        It logs information about making a prediction with the input data.
+        It calls the make_prediction function (likely from the regression_model module) with the prepared DataFrame.
+        It checks if the prediction results have an "errors" key.
+        If errors exist, it logs a warning and raises an HTTPException with status code 400 (bad request) and details
+        from the errors.
+        It logs information about the prediction results.
+        It returns the prediction results dictionary.
+----config.py -> configuration file named config.py for your FastAPI application
+    imports: Standard library logging modules and loguru for advanced logging.
+    from pydantic import AnyHttpUrl, BaseSettings
+    define LoggingSettings(BaseSettings): A Pydantic model class for logging settings with a single field:
+        LOGGING_LEVEL (an integer representing the logging severity).
+    define Settings(BaseSettings): A Pydantic model class for overall application settings.
+        API_V1_STR: Defines the API version prefix used in routing (/api/v1 by default).
+        logging: Nested LoggingSettings object for logging configuration.
+        BACKEND_CORS_ORIGINS: List of allowed origins for Cross-Origin Resource Sharing (CORS).
+         It currently allows localhost ports 3000 and 8000 with both http and https protocols
+         (marked for type-checking correction).
+        PROJECT_NAME: The name of the project (House Price Prediction API by default).
+        Config: Pydantic configuration for settings. It enforces case sensitivity.
+    InterceptHandler: A custom logging handler that intercepts standard library logs and redirects them to loguru
+     with additional information like caller location.
+    setup_app_logging: Function that sets up custom logging for the application.
+        It defines loggers of interest (uvicorn.asgi and uvicorn.access likely from Uvicorn).
+        It sets a global handler (InterceptHandler) for the root logger.
+        It sets custom handlers for the specific loggers with the configured logging level from
+         settings.logging.LOGGING_LEVEL.
+        Finally, it configures the loguru logger to write to standard error (sys.stderr) with the same logging level.
+----main.py -> Main file to for app which will be launched
+    import some fastapi functionality like APIRouter, FastAPI, Request, CORSMiddleware, HTMLResponse
+    from app.api import api_router
+    from app.config import settings, setup_app_logging
+    We do import refering to app folder like app.config etc as we will run main.py via tox which is located
+    on a higher level from app folder
+    set up LOGGER
+    instantiate fastapi app via app = FastAPI() constructor
+    in constructor u pass settings.PROJECT_NAME and settings.API_V1_STR
+    then run root_router = APIRouter() which allows you to organize your API endpoints into logical units and
+    apply common middleware or configuration to them.
+    define func:
+        @root_router.get("/")
+        def index(request: Request) -> Any:
+            ---Your HTML structure---
+            return HTMLResponse(content=body)
+    Then we define main API routes >
+    app.include_router(api_router, prefix=settings.API_V1_STR)
+        app: This refers to the main FastAPI application instance.
+        api_router: This is the APIRouter instance that contains the API routes you've defined.
+        prefix=settings.API_V1_STR: This sets a prefix for the routes included in the api_router.
+        It means that all routes in the api_router will have settings.API_V1_STR prepended to their URL paths.
+        For example, if settings.API_V1_STR is /api/v1, a route defined as /users in the api_router will be accessible
+        at /api/v1/users.
+    app.include_router(root_router)
+        This line includes the root_router instance in the main application. This means that the routes defined in
+        root_router will be accessible at the root URL of the application. For example, if you have a route defined
+        as /home in root_router, it will be accessible at the root URL of your application,
+        such as http://your-app/home.
+    then we define CORS:
+    This code snippet enables Cross-Origin Resource Sharing (CORS) for a FastAPI application,
+    based on the settings.BACKEND_CORS_ORIGINS setting.
+    Here's a breakdown of what the code does:
+    Conditional check: The code first checks if settings.BACKEND_CORS_ORIGINS is not empty. If it's empty,
+    CORS middleware won't be added, and the application won't allow cross-origin requests.
+    Adding CORS middleware: If settings.BACKEND_CORS_ORIGINS is not empty, the code adds the CORSMiddleware to the
+    FastAPI application. This middleware handles CORS requests and responses.
+    Setting allowed origins: The allow_origins parameter is set to a list of strings, where each string represents an
+    allowed origin. The list is created by iterating over the settings.BACKEND_CORS_ORIGINS and converting each element to a string. This allows for flexible configuration of allowed origins based on the settings.
+    Other CORS settings: The following parameters are also set:
+    allow_credentials: This allows sending cookies or other credentials with cross-origin requests.
+    allow_methods: This specifies the allowed HTTP methods for cross-origin requests.
+    In this case, all methods are allowed.
+    allow_headers: This specifies the allowed HTTP headers for cross-origin requests.
+    In this case, all headers are allowed.
+    Finally run uvicorn.run(app, host="localhost", port=8001, log_level="debug") which run the app local server
+
+
+
+In your project, both the Procfile and mypy.ini serve specific purposes, particularly in the context of deployment
+and type checking.
+1. Procfile:
+Purpose: The Procfile is used by platforms like Heroku and Railway to define the commands that are run by your application upon deployment. It tells the platform how to launch your application.
+Your Code:
+web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+Explanation: This line specifies that the web process should be started using Uvicorn, a fast ASGI server commonly used with FastAPI.
+uvicorn app.main:app: This command runs Uvicorn and looks for an ASGI application inside the app/main.py file (where app is presumably a FastAPI application object).
+--host 0.0.0.0: This sets the server to be accessible over the network (not just localhost).
+--port $PORT: The platform sets the environment variable $PORT, which determines the port on which the app should listen.
+2. mypy.ini:
+Purpose: mypy.ini is a configuration file for the mypy tool, which is used to perform static type checking in Python. It helps ensure that your code has the correct types and catches type errors before runtime.
+Your Code:
+[mypy]
+plugins = pydantic.mypy
+ignore_missing_imports = True
+disallow_untyped_defs = True
+Explanation:
+plugins = pydantic.mypy: This indicates that you are using the Pydantic plugin for mypy. Pydantic is used for data validation and settings management in FastAPI, and this plugin improves type-checking support for Pydantic models.
+ignore_missing_imports = True: This tells mypy to ignore missing imports and not raise errors for them. This can be useful in cases where some libraries or modules may not have type annotations.
+disallow_untyped_defs = True: This ensures that all functions must have type annotations, i.e., any function without a type annotation will raise an error during type checking.
+In summary:
+Procfile helps in defining how your app will run on a platform like Railway, telling it to use Uvicorn to serve your FastAPI app.
+mypy.ini ensures type safety in your Python code, specifically enhancing type-checking for Pydantic models used in your FastAPI app.
+
+
+Railway PAAS service ###################################################################################################
+Create railway account
+buy basic subscription (5$ for now)
+in railway.com in ur account create 'empty project' type project
+in this empty project create a empty service if it wasnt automatically created
+install scoop via PowerShell:
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+    Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+Scoop installs programs you know and love, from the command line with a minimal amount of friction. It:
+    Eliminates permission popup windows
+    Hides GUI wizard-style installers
+    Prevents PATH pollution from installing lots of programs
+    Avoids unexpected side-effects from installing and uninstalling programs
+    Finds and installs dependencies automatically
+    Performs all the extra setup steps itself to get a working program
+In CMD install railway CLI:
+    scoop install railway
+log in into ur account via CLI, in CMD run:
+    railway login --browserless
+    this will give u a link for verification, go and use this link in ur broswer vor verification
+    Now u will be able to link ur local folder to remote project
+Move to your root folder where ur app folder/requirenments.txt/Procfile are located
+in CMD run:
+    railway up --detach
+    This will link ur current root folder with remote project
+!!!
+    Docker image in railway will run requirements.txt, it will run all packages listed including ur custom .whl package
+    dont put ur .whl distribution in dist folder as it is under .dockerignore file and will not be seen by docker
+    replace folder name 'dist' with name 'pckg'
+    ./app/dist/tid_regression_model-0.0.1-py3-none-any.whl - IS NOT CORRECT
+    ./app/pckg/tid_regression_model-0.0.1-py3-none-any.whl - IS CORRECT
+
+    INTERESTING:
+    by default docker will put ur application files in its remote folder app so full PATH on remote will be run as:
+    pip install app/app/pckg/tid_regression_model-0.0.1-py3-none-any.whl
+!!!
+In railway up --detach considered as commit for its internal GIT engine
+After this railway.com building process is started which run requirements.txt file and lin in Procfile
+If build process was successfull u will see green status for it - ACTIVE
+If build process was successfull u will see grey status for previous active commit - REMOVED
+If build process was not successfull u will see red status for it - FAILED
+U can click on commit and see its building logs / deploy logs / http requests if made some
+Also on a brah level u can go under settings and and create domain to be able to connect to the service vial internet
+    https://refreshing-healing-production.up.railway.app - welcome page
+    https://refreshing-healing-production.up.railway.app/api/v1/health - health endpoint
+        which was defined in python file of our app
+
+
+
+
+
+

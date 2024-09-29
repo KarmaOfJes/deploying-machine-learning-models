@@ -1,0 +1,112 @@
+########################################################################################################################
+requirements
+requirements are break up into 2 files:
+requirements.txt and requirements_test.txt
+requirements.txt -> uses packages version definition using >= and <= operators
+requirements_test.txt -> uses pip install -r requirements.txt as well as ordinary packages names because there would be
+scenarios when we will need to extend requirements.txt with few packages
+
+########################################################################################################################
+tox
+Tox is a generic virtualenv management and test command line tool. Its goal is to standardize testing in Python
+While installing tox on windows there could be restrictions with MAX_PATH system variable, increase limit in regedit
+configuration for tox is stored in tox.ini file ->
+    to define virtual environemnt we use [] and name i.e.: [tox] or [testenv]
+    those environments would be set up in .tox directory after the first run
+    when u see something like [testenv:test_package] means test_package inherits commands from testenv
+    [tox]
+        min_version = 4: Specifies that Tox version 4 or higher is required to run this configuration.
+        envlist = test_package, checks: Defines the environments that Tox will create and manage.
+            These environments are test_package and checks.
+        skipsdist = True: Tells Tox not to create a source distribution of the package when running tests.
+            This is useful when you only need to run scripts or tests without packaging the project.
+    [testenv]
+        basepython = python: Specifies that the default Python interpreter for this environment is the one available as
+            python (usually the system default).
+        install_command = pip install {opts} {packages}: Defines the command used to install
+            dependencies in the environment.
+        allowlist_externals = train: Allows the train command to be run as an external command.
+        setenv:
+            PYTHONPATH=.: Adds the current directory to the PYTHONPATH environment variable, ensuring that the project
+                modules can be imported.
+            PYTHONHASHSEED=0: Sets the hash seed to 0 for consistent hashing behavior, which is useful in
+                tests to avoid random behavior.
+    [testenv:test_package]
+        envdir = {toxworkdir}/test_package: Specifies the directory where the environment for
+            test_package will be created.
+        deps = -r{toxinidir}/requirements/test_requirements.txt: Defines the dependencies for this environment,
+            which are listed in the test_requirements.txt file.
+        commands:
+            python regression_model/train_pipeline.py: Runs a Python script that trains a regression model.
+            pytest -s -vv {posargs/}: Runs the pytest tool to execute tests. The -s flag allows for print statements
+                to be shown in the output,
+            -vv increases verbosity. {posargs:tests/}: allows passing additional arguments when running the command;
+                by default, it runs the tests in the tests/ directory.
+    [testenv:train]
+        envdir = {toxworkdir}/test_package: Shares the same environment directory as test_package.
+        deps = {[testenv
+        ]deps}: Reuses the dependencies defined for test_package.
+        commands:
+            python regression_model/train_pipeline.py: Runs the training script, similar to what is defined in test_package.
+                This environment might be used for explicit training tasks.
+    [testenv:checks]
+        envdir = {toxworkdir}/checks: Specifies the directory where the environment for checks will be created.
+        deps = -r{toxinidir}/requirements/typing_requirements.txt: Defines the dependencies for this environment,
+            which are listed in the typing_requirements.txt file.
+        commands:
+        flake8 regression_model tests: Runs flake8 to check for PEP 8 compliance (code style)
+            in the regression_model and tests directories.
+        isort regression_model tests: Runs isort to ensure imports are sorted correctly in the specified directories.
+        {posargs regression_model}: Runs mypy, a static type checker, on the regression_model directory.
+            {posargs:mypy regression_model} allows additional arguments to be passed to mypy.
+    [flake8]
+        exclude = .git,env: Excludes the .git directory and the env directory from being checked by flake8.
+        max-line-length = 100: Sets the maximum line length for code style checks to 100 characters.
+
+1.In CMD aka CLI we can run 'tox -e train' and this will run [train] test tox env which will create env in .tox directory
+and run command 'python regression_model/train_pipeline.py' (see that we run pipeline from higher level then regression_model,
+so we need to specify from 'regression_model' path while import
+2. We can run 'tox -e test_package', that will create env in .tox directory and 'python regression_model/train_pipeline.py'
+also  will run tests from 'tests' directory
+
+########################################################################################################################
+PACKAGING
+There are different types and ways oh how to package python project, but for current course approach we need following
+packaging files:
+-MANIFEST.in
+    Here we specify which files should be included and which should be excluded
+-mypy.ini
+-pyproject.toml->
+    The main part here is [build-system]
+    there are specified basci dependecies that are required to install our package:
+    "setuptools>=42",
+    "wheel"
+    These are standard tools, but u can encounter other tools, these are the most common and standard
+    Mostly u will always use templates or tools that generate this file, never write it alone
+-setup.py->
+    This is file storing all packaging functionality
+
+
+To build package we need a 'build' to be installed in ur venv
+also u need to be on a level where all these files are located (setup.py, MANIFEST.in, mypy.ini, pyproject.toml)
+Run following in CMD to build a package ->python -m build
+After that we will get 2 directories:
+-dist
+    -tar file with our pipeline (legacy approach but let it be as well)
+    -wheel file with our model (faster to install)
+-tid_regression_model.egg-info
+    Here located text info about package: requirements, pkg-info, sources aka folders paths of ur regression_model etc
+
+
+
+
+
+TOOLING (udemy chapter or [testenv:checks] in tox.ini)
+pytest/pydentic/why yml instead of python
+
+
+
+
+
+
+
