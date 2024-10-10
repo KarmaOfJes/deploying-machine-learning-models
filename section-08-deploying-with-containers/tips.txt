@@ -1,0 +1,82 @@
+We are located in section 8 folder:
+> Dockerfile -> filer with configuration for docker image
+FROM python:3.11
+    Specify the Base Image
+    Purpose: Sets the base image to Python 3.11, ensuring that Python and pip are pre-installed in the Docker environment.
+# Create the user that will run the app
+RUN adduser --disabled-password --gecos '' ml-api-user
+    Create a Non-Root User
+    Purpose: Adds a new user named ml-api-user without a password and with empty GECOS fields.
+    Why?: Running applications as a non-root user enhances security by limiting permissions.
+WORKDIR /opt/house-prices-api
+    Set the Working Directory
+    Purpose: Sets /opt/house-prices-api as the working directory for subsequent commands.
+    Why?: Organizes the application files in a specific directory within the container.
+ARG PIP_EXTRA_INDEX_URL
+    Declare Build-Time Argument
+    Purpose: Declares a build-time variable PIP_EXTRA_INDEX_URL.
+    Why?: Used to pass an extra index URL to pip for installing packages from private repositories like Gemfury.
+# Install requirements, including from Gemfury
+ADD ./house-prices-api /opt/house-prices-api/
+    Copy Application Files
+    Purpose: Copies the house-prices-api directory from your local machine into the Docker image at /opt/house-prices-api/.
+    Why?: Includes your application code and dependencies in the Docker image.
+RUN pip install --upgrade pip
+    Upgrade pip
+    Purpose: Upgrades pip to the latest version.
+    Why?: Ensures compatibility with the latest packages and features.
+RUN pip install -r /opt/house-prices-api/requirements.txt
+    Install Python Dependencies
+    Purpose: Installs all Python packages listed in requirements.txt.
+    Why?: Sets up the Python environment with all necessary dependencies for your application.
+RUN chmod +x /opt/house-prices-api/run.sh
+RUN chown -R ml-api-user:ml-api-user ./
+    Modify Permissions and Ownership
+    Purpose:
+    chmod +x: Makes the run.sh script executable.
+    chown -R: Changes the ownership of all files in the current directory to ml-api-user.
+    Why?: Ensures that the non-root user has the necessary permissions to execute scripts and access files.
+USER ml-api-user
+    Switch to Non-Root User
+    Purpose: Sets the default user for the container to ml-api-user.
+    Why?: Continues the practice of running the application as a non-root user for security reasons.
+EXPOSE 8001
+    Expose the Application Port
+    Purpose: Informs Docker that the container will listen on port 8001 at runtime.
+    Why?: Allows you to map this port to the host machine when running the container.
+
+1. Having Dockerfile we can move on with creation of docker image
+- docker build -t house-prices-api-image .
+OR below if we have to pass arguments like PIP_EXTRA_INDEX_URL
+- docker build --build-arg PIP_EXTRA_INDEX_URL=https://7ixWSxPusbbwzjdA5MZn:@pypi.fury.io/zheka204 -t house-prices-api:latest .
+2. Image is like a class in OOP, and container is like and object, so to use Docker we need to create a container from image
+- docker run -p 8001:8001 -e PORT=8001 house-prices-api
+3. Then enter in browser http://127.0.0.1:8001/ this will lead u to ur application running via Docker
+
+
+
+
+
+
+
+house-price-api:
+> requirements.txt
+there is a line like --extra-index-url=${PIP_EXTRA_INDEX_URL}
+    Purpose: This line instructs pip to use an additional package index when searching for packages to install.
+    ${PIP_EXTRA_INDEX_URL}: This is an environment variable that should contain the URL of a custom or private package
+    repository (e.g., Gemfury).
+    Function: By specifying --extra-index-url, pip will search both the default Python Package Index (PyPI)
+    and the additional index URL for packages. This is essential when your project depends on packages that are
+    not available on PyPI.
+tid-regression-model==4.0.5
+    Searching for Packages:
+    When you run pip install -r requirements.txt, pip reads the list of packages and attempts to install them.
+    Pip searches for each package in the order of the indexes specified. By default, it searches PyPI first, then any extra indexes provided via --extra-index-url.
+    Package Not on PyPI:
+    The tid-regression-model==4.0.5 package is not available on PyPI.
+    Pip attempts to find tid-regression-model on PyPI but fails because it doesn't exist there.
+    Package Found on Gemfury:
+    After failing to find the package on PyPI, pip proceeds to search the extra index URL provided, which points to Gemfury.
+    Pip finds tid-regression-model==4.0.5 on Gemfury and installs it from there.
+
+
