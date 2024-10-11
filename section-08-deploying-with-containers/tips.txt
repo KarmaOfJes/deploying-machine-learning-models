@@ -52,6 +52,9 @@ OR below if we have to pass arguments like PIP_EXTRA_INDEX_URL
 2. Image is like a class in OOP, and container is like and object, so to use Docker we need to create a container from image
 - docker run -p 8001:8001 -e PORT=8001 house-prices-api
 3. Then enter in browser http://127.0.0.1:8001/ this will lead u to ur application running via Docker
+4. When pushing this root folder to railway (job in cicd config.yml), it will automatically detect Dockerfile
+and will use image from it, instead of its native docker
+Also, in DOckerfile there is ARG PIP_EXTRA_INDEX_URL, which means u need to declare it in railway variables
 
 
 
